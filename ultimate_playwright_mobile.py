@@ -2,13 +2,9 @@ import time
 import random
 import os
 import json
-import socket
-import threading
+import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from playwright.sync_api import sync_playwright
-from socks import socksocket, SOCKS5
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse
 
 # =============================
 # CONFIG
@@ -43,80 +39,59 @@ def load_user_agents():
 USER_AGENTS = load_user_agents()
 
 # =============================
-# SOCKS5 → HTTP CONVERTER
+# PRIVIOXY CONFIG TEMPLATE
 # =============================
-class ProxyHandler(BaseHTTPRequestHandler):
-    def do_CONNECT(self):
-        self._proxy_request()
+PRIVOXY_TEMPLATE = """
+forward-socks5t / {proxy_user}:{proxy_pass}@{proxy_host}:{proxy_port} .
+allow CONNECT
+logfile privoxy{port}.log
+listen-address 127.0.0.1:{port}
+"""
 
-    def do_GET(self):
-        self._proxy_request()
+def start_privoxy(port, proxy_user, proxy_pass):
+    cfg_path = f"privoxy_{port}.conf"
+    cfg_content = PRIVOXY_TEMPLATE.format(
+        proxy_user=proxy_user,
+        proxy_pass=proxy_pass,
+        proxy_host=PROXY_HOST,
+        proxy_port=PROXY_PORT,
+        port=port
+    )
+    with open(cfg_path, "w") as cfg:
+        cfg.write(cfg_content)
 
-    def _proxy_request(self):
-        url = self.path
-        parsed = urlparse(url if "://" in url else "http://" + url)
-
-        sock = socksocket()
-        sock.set_proxy(SOCKS5, PROXY_HOST, PROXY_PORT, True, self.server.proxy_user, self.server.proxy_pass)
-
-        try:
-            sock.connect((parsed.hostname, parsed.port or 80))
-            self.send_response(200)
-            self.end_headers()
-
-            if self.command == "CONNECT":
-                self.connection.setblocking(False)
-                while True:
-                    data = self.connection.recv(4096)
-                    if not data: break
-                    sock.send(data)
-            else:
-                request = f"{self.command} {parsed.path} HTTP/1.1\r\nHost: {parsed.hostname}\r\n\r\n"
-                sock.send(request.encode())
-                while True:
-                    data = sock.recv(4096)
-                    if not data: break
-                    self.wfile.write(data)
-        except Exception:
-            self.send_error(502)
-        finally:
-            sock.close()
-
-def start_local_proxy(port, user, password):
-    server = HTTPServer(("127.0.0.1", port), ProxyHandler)
-    server.proxy_user = user
-    server.proxy_pass = password
-
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    print(f"🟢 Local HTTP Proxy running: http://127.0.0.1:{port}")
+    subprocess.Popen(["privoxy", cfg_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    print(f"🟢 Privoxy running on: http://127.0.0.1:{port}")
 
 # =============================
 # MAIN ROUTINE
 # =============================
 def run_session(session_id, start_url, target_url):
-    local_port = 9000 + session_id  # dynamic port
-
-    # Unique proxy username for new IP
+    local_port = 9000 + session_id
     rotating_user = f"{PROXY_USER}-sid{session_id}-{random.randint(1000,9999)}"
 
-    # start converter
-    start_local_proxy(local_port, rotating_user, PROXY_PASS)
+    start_privoxy(local_port, rotating_user, PROXY_PASS)
 
     ua = random.choice(USER_AGENTS)
     vp = random.choice(ANDROID_VIEWPORTS)
 
-    print(f"\n[Session {session_id}] 🚀 Starting | UA: {ua}")
+    print(f"\n[Session {session_id}] 🚀 Started | UA: {ua}")
 
     proxy_cfg = {"server": f"http://127.0.0.1:{local_port}"}
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+
             context = browser.new_context(
                 user_agent=ua,
                 viewport=vp,
                 is_mobile=True,
                 has_touch=True,
+                ignore_https_errors=True,
                 locale="en-US",
                 timezone_id="Asia/Kolkata",
                 proxy=proxy_cfg,
@@ -129,9 +104,10 @@ def run_session(session_id, start_url, target_url):
             success = False
 
             while time.time() - start_time < MAX_WAIT_SECONDS:
-                print(f"[{session_id}] URL: {page.url}")
+                print(f"[Session {session_id}] URL: {page.url}")
+
                 if page.url.startswith(target_url):
-                    print(f"[{session_id}] 🎉 Redirect success")
+                    print(f"[Session {session_id}] 🎉 Redirect Success")
                     success = True
                     break
 
@@ -146,7 +122,7 @@ def run_session(session_id, start_url, target_url):
         print(f"[Session {session_id}] ERROR: {e}")
 
     finally:
-        print(f"[Session {session_id}] 🔥 Done")
+        print(f"[Session {session_id}] 🔥 Completed")
 
 
 def main():
