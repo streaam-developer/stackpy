@@ -33,7 +33,7 @@ ANDROID_VIEWPORTS = [
 def load_user_agents():
     if not os.path.exists("android_uas.txt"):
         raise FileNotFoundError("❌ Add useragents.txt in script directory")
-    with open("useragents.txt", "r") as f:
+    with open("android_uas.txt", "r") as f:
         return [ua.strip() for ua in f if ua.strip()]
 
 
