@@ -105,7 +105,7 @@ def run_session(session_id, start_url, target_url):
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(
-                headless=False,
+                headless=True,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--disable-software-rasterizer",
