@@ -32,22 +32,27 @@ def load_user_agents():
 USER_AGENTS = load_user_agents()
 
 def run_session(session_id, start_url, target_url):
+
+    # rotate proxy identity for new IP
     rotating_user = f"{PROXY_USER}-sid{session_id}-{random.randint(1000,9999)}"
 
     proxy_cfg = {
-        "server": f"socks5://{rotating_user}:{PROXY_PASS}@{PROXY_HOST}:{PROXY_PORT}"
+        "server": f"socks5://{PROXY_HOST}:{PROXY_PORT}",
+        "username": rotating_user,
+        "password": PROXY_PASS,
     }
 
     ua = random.choice(USER_AGENTS)
     vp = random.choice(ANDROID_VIEWPORTS)
 
-    print(f"\n[Session {session_id}] 🚀 Starting | {proxy_cfg['server']}")
+    print(f"\n[Session {session_id}] 🚀 Starting | Using proxy user: {rotating_user}")
 
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
 
             context = browser.new_context(
+                proxy=proxy_cfg,
                 user_agent=ua,
                 viewport=vp,
                 is_mobile=True,
@@ -55,7 +60,6 @@ def run_session(session_id, start_url, target_url):
                 ignore_https_errors=True,
                 locale="en-US",
                 timezone_id="Asia/Kolkata",
-                proxy=proxy_cfg,
             )
 
             page = context.new_page()
